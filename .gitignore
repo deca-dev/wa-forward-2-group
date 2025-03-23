@@ -34,3 +34,18 @@ core.class.log
 /bot_sessions
 /src/registeredVendors
 /logs
+/auth/
+
+# Docker files
+node_modules
+dist
+logs
+src/auth
+src/registeredVendors
+
+# Environment variables
+.env
+
+# Temporary files
+*.log
+npm-debug.log*

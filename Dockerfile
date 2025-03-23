@@ -1,40 +1,32 @@
-# Image size ~ 400MB
-FROM node:21-alpine3.18 as builder
+FROM node:18-alpine
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
-ENV PNPM_HOME=/usr/local/bin
+# Install build dependencies including git
+RUN apk add --no-cache python3 make g++ git
 
-COPY . .
+# Copy package files first for better caching
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
 
-COPY package*.json *-lock.yaml ./
+# Explicitly install baileys with legacy-peer-deps
+RUN npm install @whiskeysockets/baileys@latest --legacy-peer-deps
 
-RUN apk add --no-cache --virtual .gyp \
-        python3 \
-        make \
-        g++ \
-    && apk add --no-cache git \
-    && pnpm install && pnpm run build \
-    && apk del .gyp
+# Copy configuration files
+COPY tsconfig.json rollup.config.js ./
 
-FROM node:21-alpine3.18 as deploy
+# Copy source code
+COPY src/ ./src/
 
-WORKDIR /app
+# Build with Rollup
+RUN npm run build
 
-ARG PORT
-ENV PORT $PORT
-EXPOSE $PORT
+# Create required directories
+RUN mkdir -p src/auth logs src/registeredVendors
+RUN echo "[]" > src/registeredVendors/vendors.json
 
-COPY --from=builder /app/assets ./assets
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/*.json /app/*-lock.yaml ./
+# Expose the port
+EXPOSE 3000
 
-RUN corepack enable && corepack prepare pnpm@latest --activate 
-ENV PNPM_HOME=/usr/local/bin
-RUN mkdir /app/tmp
-RUN npm cache clean --force && pnpm install --production --ignore-scripts \
-    && addgroup -g 1001 -S nodejs && adduser -S -u 1001 nodejs \
-    && rm -rf $PNPM_HOME/.npm $PNPM_HOME/.node-gyp
-
+# Start the application
 CMD ["npm", "start"]

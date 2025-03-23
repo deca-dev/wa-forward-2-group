@@ -1,7 +1,9 @@
-dist/*
 node_modules
-.env
-
-*_sessions
-*tokens
-.wwebjs*
+dist
+npm-debug.log
+logs
+src/auth
+.git
+.vscode
+.idea
+*.md

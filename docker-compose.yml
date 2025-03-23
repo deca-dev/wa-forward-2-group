@@ -1,0 +1,10 @@
+services:
+  whatsapp-forwarder:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src/auth:/app/src/auth
+      - ./logs:/app/logs
+      - ./src/registeredVendors:/app/src/registeredVendors
+    restart: unless-stopped
