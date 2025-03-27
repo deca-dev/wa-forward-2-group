@@ -1,32 +1,36 @@
-FROM node:18-alpine
+# FROM node:16-alpine
 
-WORKDIR /app
+# ENV NODE_OPTIONS=--openssl-legacy-provider
 
-# Install build dependencies including git
-RUN apk add --no-cache python3 make g++ git
+# WORKDIR /app
 
-# Copy package files first for better caching
-COPY package*.json ./
-RUN npm install --legacy-peer-deps
+# # Install build dependencies including git
+# RUN apk add --no-cache python3 make g++ git
 
-# Explicitly install baileys with legacy-peer-deps
-RUN npm install @whiskeysockets/baileys@latest --legacy-peer-deps
+# # Copy package files first for better caching
+# COPY package*.json ./
+# RUN npm install --legacy-peer-deps
 
-# Copy configuration files
-COPY tsconfig.json rollup.config.js ./
+# # Explicitly install baileys with legacy-peer-deps
+# RUN npm install @whiskeysockets/baileys@latest --legacy-peer-deps
 
-# Copy source code
-COPY src/ ./src/
+# # Copy configuration files
+# COPY tsconfig.json rollup.config.js ./
 
-# Build with Rollup
-RUN npm run build
+# # Copy source code
+# COPY src/ ./src/
 
-# Create required directories
-RUN mkdir -p src/auth logs src/registeredVendors
-RUN echo "[]" > src/registeredVendors/vendors.json
+# # Build with Rollup
+# RUN npm run build
 
-# Expose the port
-EXPOSE 3000
+# # Create required directories
+# RUN mkdir -p src/auth logs src/registeredVendors
+# RUN echo "[]" > src/registeredVendors/vendors.json
 
-# Start the application
-CMD ["npm", "start"]
+# # Expose the port
+# EXPOSE 3000
+
+# # Start the application
+# CMD ["npm", "start"]
+
+
