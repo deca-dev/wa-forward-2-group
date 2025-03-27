@@ -2,7 +2,7 @@
 
 {
   "name": "Test Bot",
-  "phoneNumber": "52155123456",
+  "phoneNumber": "52155XXXXXXX",
   "groupName": "Testing-Group 01"
 }
 
