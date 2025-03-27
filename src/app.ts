@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
@@ -86,167 +86,469 @@ function setupGlobalMessageHandlers() {
 }
 
 // Function to create new socket with message handlers attached
+// function createSocketWithHandlers(authDir: string, sessionId: string) {
+//     return new Promise<ReturnType<typeof makeWASocket>>((resolve, reject) => {
+//       useMultiFileAuthState(authDir)
+//         .then(({ state, saveCreds }) => {
+//           const sock = makeWASocket({
+//             printQRInTerminal: true,
+//             browser: ['WhatsApp', 'Web', '2.2311.3'],
+//             auth: state,
+//             version: [2, 3000, 200924]
+//           });
+          
+//           // Register this socket to its session
+//           const sockId = sock.user?.id || Date.now().toString();
+//           socketSessionMap.set(sockId, sessionId);
+//           console.log(`Registered socket ${sockId} to session ${sessionId}`);
+          
+//           // Set up message handling for this socket specifically
+//           sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
+//             console.log(`[RECEIVED MESSAGE] Socket: ${sockId}, Session: ${sessionId}, Type: ${type}, Count: ${messages?.length}`);
+//             logToFile({ 
+//               event: 'messages.upsert', 
+//               sockId, 
+//               sessionId, 
+//               type, 
+//               count: messages?.length 
+//             }, 'MESSAGE_RECEIVED');
+            
+//             const session = sessions.get(sessionId);
+//             if (!session || !session.sock || !messages) {
+//               console.error('Cannot process messages: invalid session state');
+//               return;
+//             }
+            
+//             // Debug: Log ALL incoming messages
+//             console.log("ALL INCOMING MESSAGES:", JSON.stringify(messages, null, 2));
+//             logToFile(messages, 'ALL_INCOMING');
+            
+//             for (const message of messages) {
+//               try {
+//                 // Log raw message for debugging
+//                 console.log('PROCESSING RAW MESSAGE:', JSON.stringify(message, null, 2));
+//                 logToFile(message, 'RAW_MESSAGE_DETAIL');
+                
+//                 if (message.key?.fromMe || message.messageStubType) {
+//                   console.log('Skipping message (from me or system message)');
+//                   continue;
+//                 }
+                
+//                 // Extract text from all possible message formats with detailed logging
+//                 let messageText = '';
+//                 let textSource = 'unknown';
+                
+//                 if (message.message?.conversation && message.message.conversation.trim() !== '') {
+//                   messageText = message.message.conversation;
+//                   textSource = 'conversation';
+//                   console.log(`Text from conversation field: "${messageText}"`);
+//                 } 
+//                 else if (message.message?.extendedTextMessage?.text && message.message.extendedTextMessage.text.trim() !== '') {
+//                   messageText = message.message.extendedTextMessage.text;
+//                   textSource = 'extendedTextMessage';
+//                   console.log(`Text from extendedTextMessage field: "${messageText}"`);
+//                 }
+//                 else if (message.message?.buttonsResponseMessage?.selectedDisplayText && 
+//                          message.message.buttonsResponseMessage.selectedDisplayText.trim() !== '') {
+//                   messageText = message.message.buttonsResponseMessage.selectedDisplayText;
+//                   textSource = 'buttonsResponse';
+//                   console.log(`Text from buttonsResponse field: "${messageText}"`);
+//                 }
+//                 else {
+//                   // Try to find text in any property
+//                   console.log("Checking other message types...");
+//                   const messageObj = message.message || {};
+//                   for (const key in messageObj) {
+//                     if (typeof messageObj[key]?.text === 'string' && messageObj[key].text.trim() !== '') {
+//                       messageText = messageObj[key].text;
+//                       textSource = `${key}.text`;
+//                       console.log(`Text from ${textSource} field: "${messageText}"`);
+//                       break;
+//                     }
+//                   }
+//                 }
+                
+//                 if (!messageText || messageText.trim() === '') {
+//                   console.log('No text content found in message');
+//                   continue;
+//                 }
+                
+//                 // Log extracted message details
+//                 logToFile({ 
+//                   text: messageText, 
+//                   source: textSource,
+//                   fromJid: message.key.remoteJid
+//                 }, 'EXTRACTED_TEXT');
+                
+//                 // Check for forwarding trigger - more lenient matching
+//                 const normalizedText = messageText.trim();
+//                 if (normalizedText.startsWith('Re-envía:') || 
+//                     normalizedText.startsWith('Re-envia:') ||
+//                     normalizedText.startsWith('Re-envíá:') ||
+//                     normalizedText.startsWith('Reenvia:') ||
+//                     normalizedText.startsWith('Reenvía:')) {
+                  
+//                   console.log('✅ FOUND forwarding trigger message!');
+//                   logToFile({ trigger: normalizedText.split(':', 1)[0], text: messageText }, 'TRIGGER_FOUND');
+
+//                   const prefixMatch = normalizedText.match(/^(Re-envía:|Re-envia:|Re-envíá:|Reenvia:|Reenvía:)\s*/);
+//                   const prefixLength = prefixMatch ? prefixMatch[0].length : 0;
+//                   const forwardText = messageText.substring(prefixLength).trim();
+                  
+//                   if (session.forwardGroupId) {
+//                     try {
+//                       console.log(`Attempting to forward message to group: ${session.forwardGroupId}`);
+//                       await session.sock.sendMessage(session.forwardGroupId, { 
+//                         text: forwardText 
+//                       });
+//                       console.log('Message forwarded successfully');
+//                       logToFile({ success: true, groupId: session.forwardGroupId }, 'FORWARD_SUCCESS');
+//                     } catch (error) {
+//                       console.error('Failed to forward message:', error);
+//                       logToFile({ error: String(error) }, 'FORWARD_ERROR');
+//                     }
+//                   } else {
+//                     console.error(`No forward group configured for: ${session.groupName}`);
+//                     logToFile({ error: 'No target group', groupName: session.groupName }, 'NO_TARGET');
+//                   }
+//                 } else {
+//                   console.log('Message does not match forwarding criteria');
+//                   logToFile({ 
+//                     text: messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''),
+//                     matches: false 
+//                   }, 'NO_MATCH');
+//                 }
+//               } catch (error) {
+//                 console.error('Error processing message:', error);
+//                 logToFile({ error: String(error) }, 'PROCESS_ERROR');
+//               }
+//             }
+//           });
+          
+//           // Set up other event listeners for debugging
+//           sock.ev.on('messaging-history.set', () => {
+//             console.log(`Messaging history set for session ${sessionId}`);
+//             logToFile(`Messaging history set for session ${sessionId}`, 'HISTORY_SET');
+//           });
+          
+//           sock.ev.on('presence.update', (data) => {
+//             console.log(`Presence update for session ${sessionId}:`, data);
+//             logToFile({ sessionId, ...data }, 'PRESENCE_UPDATE');
+//           });
+          
+//           // Set up creds update handler
+//           sock.ev.on('creds.update', saveCreds);
+          
+//           resolve(sock);
+//         })
+//         .catch(error => {
+//           reject(error);
+//         });
+//     });
+//   }
 // Function to create new socket with message handlers attached
 function createSocketWithHandlers(authDir: string, sessionId: string) {
-    return new Promise<ReturnType<typeof makeWASocket>>((resolve, reject) => {
-      useMultiFileAuthState(authDir)
-        .then(({ state, saveCreds }) => {
-          const sock = makeWASocket({
-            printQRInTerminal: true,
-            browser: ['WhatsApp', 'Web', '2.2311.3'],
-            auth: state,
-            version: [2, 3000, 200924]
-          });
+  return new Promise<ReturnType<typeof makeWASocket>>((resolve, reject) => {
+    useMultiFileAuthState(authDir)
+      .then(({ state, saveCreds }) => {
+        const sock = makeWASocket({
+          printQRInTerminal: true,
+          browser: ['WhatsApp', 'Web', '2.2311.3'],
+          auth: state,
+          version: [2, 3000, 200924]
+        });
+        
+        // Register this socket to its session
+        const sockId = sock.user?.id || Date.now().toString();
+        socketSessionMap.set(sockId, sessionId);
+        console.log(`Registered socket ${sockId} to session ${sessionId}`);
+        
+        // Set up message handling for this socket specifically
+        sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
+          console.log(`[RECEIVED MESSAGE] Socket: ${sockId}, Session: ${sessionId}, Type: ${type}, Count: ${messages?.length}`);
+          logToFile({ 
+            event: 'messages.upsert', 
+            sockId, 
+            sessionId, 
+            type, 
+            count: messages?.length 
+          }, 'MESSAGE_RECEIVED');
           
-          // Register this socket to its session
-          const sockId = sock.user?.id || Date.now().toString();
-          socketSessionMap.set(sockId, sessionId);
-          console.log(`Registered socket ${sockId} to session ${sessionId}`);
+          const session = sessions.get(sessionId);
+          if (!session || !session.sock || !messages) {
+            console.error('Cannot process messages: invalid session state');
+            return;
+          }
           
-          // Set up message handling for this socket specifically
-          sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
-            console.log(`[RECEIVED MESSAGE] Socket: ${sockId}, Session: ${sessionId}, Type: ${type}, Count: ${messages?.length}`);
-            logToFile({ 
-              event: 'messages.upsert', 
-              sockId, 
-              sessionId, 
-              type, 
-              count: messages?.length 
-            }, 'MESSAGE_RECEIVED');
-            
-            const session = sessions.get(sessionId);
-            if (!session || !session.sock || !messages) {
-              console.error('Cannot process messages: invalid session state');
-              return;
-            }
-            
-            // Debug: Log ALL incoming messages
-            console.log("ALL INCOMING MESSAGES:", JSON.stringify(messages, null, 2));
-            logToFile(messages, 'ALL_INCOMING');
-            
-            for (const message of messages) {
-              try {
-                // Log raw message for debugging
-                console.log('PROCESSING RAW MESSAGE:', JSON.stringify(message, null, 2));
-                logToFile(message, 'RAW_MESSAGE_DETAIL');
-                
-                if (message.key?.fromMe || message.messageStubType) {
-                  console.log('Skipping message (from me or system message)');
-                  continue;
+          // Debug: Log ALL incoming messages
+          console.log("ALL INCOMING MESSAGES:", JSON.stringify(messages, null, 2));
+          logToFile(messages, 'ALL_INCOMING');
+          
+          for (const message of messages) {
+            try {
+              // Log raw message for debugging
+              console.log('PROCESSING RAW MESSAGE:', JSON.stringify(message, null, 2));
+              logToFile(message, 'RAW_MESSAGE_DETAIL');
+              
+              if (message.key?.fromMe || message.messageStubType) {
+                console.log('Skipping message (from me or system message)');
+                continue;
+              }
+              
+              // Extract text from all possible message formats with detailed logging
+              let messageText = '';
+              let textSource = 'unknown';
+              let hasMedia = false;
+              let mediaMessage: any = null;
+              let mediaType = 'unknown';
+              
+              // Check for text content first
+              if (message.message?.conversation && message.message.conversation.trim() !== '') {
+                messageText = message.message.conversation;
+                textSource = 'conversation';
+                console.log(`Text from conversation field: "${messageText}"`);
+              } 
+              else if (message.message?.extendedTextMessage?.text && message.message.extendedTextMessage.text.trim() !== '') {
+                messageText = message.message.extendedTextMessage.text;
+                textSource = 'extendedTextMessage';
+                console.log(`Text from extendedTextMessage field: "${messageText}"`);
+              }
+              else if (message.message?.buttonsResponseMessage?.selectedDisplayText && 
+                      message.message.buttonsResponseMessage.selectedDisplayText.trim() !== '') {
+                messageText = message.message.buttonsResponseMessage.selectedDisplayText;
+                textSource = 'buttonsResponse';
+                console.log(`Text from buttonsResponse field: "${messageText}"`);
+              }
+              
+              // Check for media with caption
+              if (message.message?.imageMessage) {
+                hasMedia = true;
+                mediaMessage = message.message.imageMessage;
+                mediaType = 'image';
+                if (mediaMessage.caption && mediaMessage.caption.trim() !== '') {
+                  messageText = mediaMessage.caption;
+                  textSource = 'imageMessage.caption';
+                  console.log(`Text from image caption: "${messageText}"`);
                 }
-                
-                // Extract text from all possible message formats with detailed logging
-                let messageText = '';
-                let textSource = 'unknown';
-                
-                if (message.message?.conversation && message.message.conversation.trim() !== '') {
-                  messageText = message.message.conversation;
-                  textSource = 'conversation';
-                  console.log(`Text from conversation field: "${messageText}"`);
-                } 
-                else if (message.message?.extendedTextMessage?.text && message.message.extendedTextMessage.text.trim() !== '') {
-                  messageText = message.message.extendedTextMessage.text;
-                  textSource = 'extendedTextMessage';
-                  console.log(`Text from extendedTextMessage field: "${messageText}"`);
+              }
+              else if (message.message?.videoMessage) {
+                hasMedia = true;
+                mediaMessage = message.message.videoMessage;
+                mediaType = 'video';
+                if (mediaMessage.caption && mediaMessage.caption.trim() !== '') {
+                  messageText = mediaMessage.caption;
+                  textSource = 'videoMessage.caption';
+                  console.log(`Text from video caption: "${messageText}"`);
                 }
-                else if (message.message?.buttonsResponseMessage?.selectedDisplayText && 
-                         message.message.buttonsResponseMessage.selectedDisplayText.trim() !== '') {
-                  messageText = message.message.buttonsResponseMessage.selectedDisplayText;
-                  textSource = 'buttonsResponse';
-                  console.log(`Text from buttonsResponse field: "${messageText}"`);
-                }
-                else {
-                  // Try to find text in any property
-                  console.log("Checking other message types...");
-                  const messageObj = message.message || {};
-                  for (const key in messageObj) {
-                    if (typeof messageObj[key]?.text === 'string' && messageObj[key].text.trim() !== '') {
-                      messageText = messageObj[key].text;
-                      textSource = `${key}.text`;
-                      console.log(`Text from ${textSource} field: "${messageText}"`);
-                      break;
-                    }
+              }
+              else if (message.message?.audioMessage) {
+                hasMedia = true;
+                mediaMessage = message.message.audioMessage;
+                mediaType = 'audio';
+                console.log('Audio message detected (no caption)');
+              }
+              else if (message.message?.documentMessage) {
+                hasMedia = true;
+                mediaMessage = message.message.documentMessage;
+                mediaType = 'document';
+                console.log(`Document message detected: ${mediaMessage.fileName || 'unknown file'}`);
+              }
+              else if (message.message?.stickerMessage) {
+                hasMedia = true;
+                mediaMessage = message.message.stickerMessage;
+                mediaType = 'sticker';
+                console.log('Sticker message detected');
+              }
+              
+              // Try to find text in any other property as fallback
+              if (!messageText || messageText.trim() === '') {
+                console.log("Checking other message types for text...");
+                const messageObj = message.message || {};
+                for (const key in messageObj) {
+                  if (typeof messageObj[key]?.text === 'string' && messageObj[key].text.trim() !== '') {
+                    messageText = messageObj[key].text;
+                    textSource = `${key}.text`;
+                    console.log(`Text from ${textSource} field: "${messageText}"`);
+                    break;
                   }
                 }
-                
-                if (!messageText || messageText.trim() === '') {
-                  console.log('No text content found in message');
-                  continue;
-                }
-                
-                // Log extracted message details
+              }
+              
+              // Log extracted message details
+              logToFile({ 
+                text: messageText, 
+                hasMedia,
+                mediaType,
+                source: textSource,
+                fromJid: message.key.remoteJid
+              }, 'EXTRACTED_MESSAGE');
+              
+              // Check for forwarding trigger - more lenient matching
+              const normalizedText = messageText.trim();
+              const shouldForward = normalizedText.startsWith('Re-envía:') || 
+                normalizedText.startsWith('Re-envia:') ||
+                normalizedText.startsWith('Re-envíá:') ||
+                normalizedText.startsWith('Reenvia:') ||
+                normalizedText.startsWith('Reenvía:');
+              
+              if (shouldForward || (hasMedia && normalizedText.includes('Re-envía'))) {
+                console.log('✅ FOUND forwarding trigger message!');
                 logToFile({ 
-                  text: messageText, 
-                  source: textSource,
-                  fromJid: message.key.remoteJid
-                }, 'EXTRACTED_TEXT');
-                
-                // Check for forwarding trigger - more lenient matching
-                const normalizedText = messageText.trim();
-                if (normalizedText.startsWith('Re-envía:') || 
-                    normalizedText.startsWith('Re-envia:') ||
-                    normalizedText.startsWith('Re-envíá:') ||
-                    normalizedText.startsWith('Reenvia:') ||
-                    normalizedText.startsWith('Reenvía:')) {
-                  
-                  console.log('✅ FOUND forwarding trigger message!');
-                  logToFile({ trigger: normalizedText.split(':', 1)[0], text: messageText }, 'TRIGGER_FOUND');
+                  trigger: normalizedText.split(':', 1)[0], 
+                  text: messageText,
+                  hasMedia,
+                  mediaType 
+                }, 'TRIGGER_FOUND');
 
+                let forwardText = '';
+                if (messageText) {
                   const prefixMatch = normalizedText.match(/^(Re-envía:|Re-envia:|Re-envíá:|Reenvia:|Reenvía:)\s*/);
                   const prefixLength = prefixMatch ? prefixMatch[0].length : 0;
-                  const forwardText = messageText.substring(prefixLength).trim();
-                  
-                  if (session.forwardGroupId) {
-                    try {
-                      console.log(`Attempting to forward message to group: ${session.forwardGroupId}`);
-                      await session.sock.sendMessage(session.forwardGroupId, { 
-                        text: forwardText 
-                      });
-                      console.log('Message forwarded successfully');
+                  forwardText = messageText.substring(prefixLength).trim();
+                }
+                
+                if (session.forwardGroupId) {
+                  try {
+                    console.log(`Attempting to forward message to group: ${session.forwardGroupId}`);
+                    
+                    if (hasMedia && mediaMessage) {
+                      // Download and forward media
+                      try {
+                        const stream = await downloadMediaMessage(
+                          message,
+                          'stream',
+                          {},
+                          { 
+                            logger: console,
+                            reuploadRequest: sock.updateMediaMessage
+                          }
+                        );
+                        
+                        // Convert stream to buffer
+                        let buffer = Buffer.alloc(0);
+                        for await (const chunk of stream) {
+                          buffer = Buffer.concat([buffer, chunk]);
+                        }
+                        
+                        // Determine the right message type to send
+                        if (mediaType === 'image') {
+                          await session.sock.sendMessage(session.forwardGroupId, { 
+                            image: buffer,
+                            caption: forwardText || undefined
+                          });
+                        } 
+                        else if (mediaType === 'video') {
+                          await session.sock.sendMessage(session.forwardGroupId, { 
+                            video: buffer,
+                            caption: forwardText || undefined
+                          });
+                        }
+                        else if (mediaType === 'audio') {
+                          await session.sock.sendMessage(session.forwardGroupId, { 
+                            audio: buffer,
+                            mimetype: mediaMessage.mimetype || 'audio/mp4',
+                            ptt: mediaMessage.ptt || false
+                          });
+                          
+                          // Send text separately if audio has no caption but there's a forwarding text
+                          if (forwardText) {
+                            await session.sock.sendMessage(session.forwardGroupId, { text: forwardText });
+                          }
+                        }
+                        else if (mediaType === 'document') {
+                          await session.sock.sendMessage(session.forwardGroupId, { 
+                            document: buffer,
+                            mimetype: mediaMessage.mimetype || 'application/octet-stream',
+                            fileName: mediaMessage.fileName || 'file'
+                          });
+                          
+                          // Send text separately if document has no caption
+                          if (forwardText) {
+                            await session.sock.sendMessage(session.forwardGroupId, { text: forwardText });
+                          }
+                        }
+                        else if (mediaType === 'sticker') {
+                          await session.sock.sendMessage(session.forwardGroupId, { 
+                            sticker: buffer
+                          });
+                          
+                          // Send text separately if there's a forwarding text
+                          if (forwardText) {
+                            await session.sock.sendMessage(session.forwardGroupId, { text: forwardText });
+                          }
+                        }
+                        
+                        console.log(`Media message (${mediaType}) forwarded successfully`);
+                        logToFile({ 
+                          success: true, 
+                          mediaType, 
+                          hasText: !!forwardText, 
+                          groupId: session.forwardGroupId 
+                        }, 'MEDIA_FORWARD_SUCCESS');
+                      } catch (mediaError) {
+                        console.error('Failed to process media:', mediaError);
+                        logToFile({ error: String(mediaError) }, 'MEDIA_PROCESS_ERROR');
+                        
+                        // Fall back to forwarding just the text
+                        if (forwardText) {
+                          await session.sock.sendMessage(session.forwardGroupId, { text: forwardText });
+                          console.log('Forwarded text only (media download failed)');
+                        }
+                      }
+                    } else if (forwardText) {
+                      // Forward text only
+                      await session.sock.sendMessage(session.forwardGroupId, { text: forwardText });
+                      console.log('Text message forwarded successfully');
                       logToFile({ success: true, groupId: session.forwardGroupId }, 'FORWARD_SUCCESS');
-                    } catch (error) {
-                      console.error('Failed to forward message:', error);
-                      logToFile({ error: String(error) }, 'FORWARD_ERROR');
+                    } else {
+                      console.log('No content to forward');
+                      logToFile({ error: 'No content to forward' }, 'FORWARD_ERROR');
                     }
-                  } else {
-                    console.error(`No forward group configured for: ${session.groupName}`);
-                    logToFile({ error: 'No target group', groupName: session.groupName }, 'NO_TARGET');
+                  } catch (error) {
+                    console.error('Failed to forward message:', error);
+                    logToFile({ error: String(error) }, 'FORWARD_ERROR');
                   }
                 } else {
-                  console.log('Message does not match forwarding criteria');
-                  logToFile({ 
-                    text: messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''),
-                    matches: false 
-                  }, 'NO_MATCH');
+                  console.error(`No forward group configured for: ${session.groupName}`);
+                  logToFile({ error: 'No target group', groupName: session.groupName }, 'NO_TARGET');
                 }
-              } catch (error) {
-                console.error('Error processing message:', error);
-                logToFile({ error: String(error) }, 'PROCESS_ERROR');
+              } else {
+                console.log('Message does not match forwarding criteria');
+                logToFile({ 
+                  text: messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''),
+                  hasMedia,
+                  mediaType,
+                  matches: false 
+                }, 'NO_MATCH');
               }
+            } catch (error) {
+              console.error('Error processing message:', error);
+              logToFile({ error: String(error) }, 'PROCESS_ERROR');
             }
-          });
-          
-          // Set up other event listeners for debugging
-          sock.ev.on('messaging-history.set', () => {
-            console.log(`Messaging history set for session ${sessionId}`);
-            logToFile(`Messaging history set for session ${sessionId}`, 'HISTORY_SET');
-          });
-          
-          sock.ev.on('presence.update', (data) => {
-            console.log(`Presence update for session ${sessionId}:`, data);
-            logToFile({ sessionId, ...data }, 'PRESENCE_UPDATE');
-          });
-          
-          // Set up creds update handler
-          sock.ev.on('creds.update', saveCreds);
-          
-          resolve(sock);
-        })
-        .catch(error => {
-          reject(error);
+          }
         });
-    });
-  }
+        
+        // Set up other event listeners for debugging
+        sock.ev.on('messaging-history.set', () => {
+          console.log(`Messaging history set for session ${sessionId}`);
+          logToFile(`Messaging history set for session ${sessionId}`, 'HISTORY_SET');
+        });
+        
+        sock.ev.on('presence.update', (data) => {
+          console.log(`Presence update for session ${sessionId}:`, data);
+          logToFile({ sessionId, ...data }, 'PRESENCE_UPDATE');
+        });
+        
+        // Set up creds update handler
+        sock.ev.on('creds.update', saveCreds);
+        
+        resolve(sock);
+      })
+      .catch(error => {
+        reject(error);
+      });
+  });
+}
 
 // Auto check all sessions function
 const autoCheckSessions = async () => {
