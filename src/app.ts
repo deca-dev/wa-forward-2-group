@@ -30,6 +30,27 @@ interface CreateSessionBody {
   groupName: string;
 }
 
+interface ILogger {
+  level: string;
+  debug: (...args: any[]) => void;
+  info: (...args: any[]) => void;
+  warn: (...args: any[]) => void;
+  error: (...args: any[]) => void;
+  trace: (...args: any[]) => void;
+  child: (obj: object) => ILogger;
+}
+
+// Then create a custom logger
+const logger: ILogger = {
+  level: 'info',
+  debug: (...args: any[]) => console.debug(...args),
+  info: (...args: any[]) => console.info(...args),
+  warn: (...args: any[]) => console.warn(...args),
+  error: (...args: any[]) => console.error(...args),
+  trace: (...args: any[]) => console.trace(...args),
+  child: (obj: object) => logger
+};
+
 // Create Express app
 const app = express();
 app.use(cors());
@@ -73,7 +94,7 @@ function logToFile(data: any, prefix: string = 'debug') {
     }
     
     appendFileSync(logFile, logData);
-    console.log(`Logged to ${logFile}`);
+    // console.log(`Logged to ${logFile}`);
   } catch (error) {
     console.error('Failed to write log:', error);
   }
@@ -85,167 +106,6 @@ function setupGlobalMessageHandlers() {
   logToFile("Setting up global message handlers", "SETUP");
 }
 
-// Function to create new socket with message handlers attached
-// function createSocketWithHandlers(authDir: string, sessionId: string) {
-//     return new Promise<ReturnType<typeof makeWASocket>>((resolve, reject) => {
-//       useMultiFileAuthState(authDir)
-//         .then(({ state, saveCreds }) => {
-//           const sock = makeWASocket({
-//             printQRInTerminal: true,
-//             browser: ['WhatsApp', 'Web', '2.2311.3'],
-//             auth: state,
-//             version: [2, 3000, 200924]
-//           });
-          
-//           // Register this socket to its session
-//           const sockId = sock.user?.id || Date.now().toString();
-//           socketSessionMap.set(sockId, sessionId);
-//           console.log(`Registered socket ${sockId} to session ${sessionId}`);
-          
-//           // Set up message handling for this socket specifically
-//           sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
-//             console.log(`[RECEIVED MESSAGE] Socket: ${sockId}, Session: ${sessionId}, Type: ${type}, Count: ${messages?.length}`);
-//             logToFile({ 
-//               event: 'messages.upsert', 
-//               sockId, 
-//               sessionId, 
-//               type, 
-//               count: messages?.length 
-//             }, 'MESSAGE_RECEIVED');
-            
-//             const session = sessions.get(sessionId);
-//             if (!session || !session.sock || !messages) {
-//               console.error('Cannot process messages: invalid session state');
-//               return;
-//             }
-            
-//             // Debug: Log ALL incoming messages
-//             console.log("ALL INCOMING MESSAGES:", JSON.stringify(messages, null, 2));
-//             logToFile(messages, 'ALL_INCOMING');
-            
-//             for (const message of messages) {
-//               try {
-//                 // Log raw message for debugging
-//                 console.log('PROCESSING RAW MESSAGE:', JSON.stringify(message, null, 2));
-//                 logToFile(message, 'RAW_MESSAGE_DETAIL');
-                
-//                 if (message.key?.fromMe || message.messageStubType) {
-//                   console.log('Skipping message (from me or system message)');
-//                   continue;
-//                 }
-                
-//                 // Extract text from all possible message formats with detailed logging
-//                 let messageText = '';
-//                 let textSource = 'unknown';
-                
-//                 if (message.message?.conversation && message.message.conversation.trim() !== '') {
-//                   messageText = message.message.conversation;
-//                   textSource = 'conversation';
-//                   console.log(`Text from conversation field: "${messageText}"`);
-//                 } 
-//                 else if (message.message?.extendedTextMessage?.text && message.message.extendedTextMessage.text.trim() !== '') {
-//                   messageText = message.message.extendedTextMessage.text;
-//                   textSource = 'extendedTextMessage';
-//                   console.log(`Text from extendedTextMessage field: "${messageText}"`);
-//                 }
-//                 else if (message.message?.buttonsResponseMessage?.selectedDisplayText && 
-//                          message.message.buttonsResponseMessage.selectedDisplayText.trim() !== '') {
-//                   messageText = message.message.buttonsResponseMessage.selectedDisplayText;
-//                   textSource = 'buttonsResponse';
-//                   console.log(`Text from buttonsResponse field: "${messageText}"`);
-//                 }
-//                 else {
-//                   // Try to find text in any property
-//                   console.log("Checking other message types...");
-//                   const messageObj = message.message || {};
-//                   for (const key in messageObj) {
-//                     if (typeof messageObj[key]?.text === 'string' && messageObj[key].text.trim() !== '') {
-//                       messageText = messageObj[key].text;
-//                       textSource = `${key}.text`;
-//                       console.log(`Text from ${textSource} field: "${messageText}"`);
-//                       break;
-//                     }
-//                   }
-//                 }
-                
-//                 if (!messageText || messageText.trim() === '') {
-//                   console.log('No text content found in message');
-//                   continue;
-//                 }
-                
-//                 // Log extracted message details
-//                 logToFile({ 
-//                   text: messageText, 
-//                   source: textSource,
-//                   fromJid: message.key.remoteJid
-//                 }, 'EXTRACTED_TEXT');
-                
-//                 // Check for forwarding trigger - more lenient matching
-//                 const normalizedText = messageText.trim();
-//                 if (normalizedText.startsWith('Re-envía:') || 
-//                     normalizedText.startsWith('Re-envia:') ||
-//                     normalizedText.startsWith('Re-envíá:') ||
-//                     normalizedText.startsWith('Reenvia:') ||
-//                     normalizedText.startsWith('Reenvía:')) {
-                  
-//                   console.log('✅ FOUND forwarding trigger message!');
-//                   logToFile({ trigger: normalizedText.split(':', 1)[0], text: messageText }, 'TRIGGER_FOUND');
-
-//                   const prefixMatch = normalizedText.match(/^(Re-envía:|Re-envia:|Re-envíá:|Reenvia:|Reenvía:)\s*/);
-//                   const prefixLength = prefixMatch ? prefixMatch[0].length : 0;
-//                   const forwardText = messageText.substring(prefixLength).trim();
-                  
-//                   if (session.forwardGroupId) {
-//                     try {
-//                       console.log(`Attempting to forward message to group: ${session.forwardGroupId}`);
-//                       await session.sock.sendMessage(session.forwardGroupId, { 
-//                         text: forwardText 
-//                       });
-//                       console.log('Message forwarded successfully');
-//                       logToFile({ success: true, groupId: session.forwardGroupId }, 'FORWARD_SUCCESS');
-//                     } catch (error) {
-//                       console.error('Failed to forward message:', error);
-//                       logToFile({ error: String(error) }, 'FORWARD_ERROR');
-//                     }
-//                   } else {
-//                     console.error(`No forward group configured for: ${session.groupName}`);
-//                     logToFile({ error: 'No target group', groupName: session.groupName }, 'NO_TARGET');
-//                   }
-//                 } else {
-//                   console.log('Message does not match forwarding criteria');
-//                   logToFile({ 
-//                     text: messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''),
-//                     matches: false 
-//                   }, 'NO_MATCH');
-//                 }
-//               } catch (error) {
-//                 console.error('Error processing message:', error);
-//                 logToFile({ error: String(error) }, 'PROCESS_ERROR');
-//               }
-//             }
-//           });
-          
-//           // Set up other event listeners for debugging
-//           sock.ev.on('messaging-history.set', () => {
-//             console.log(`Messaging history set for session ${sessionId}`);
-//             logToFile(`Messaging history set for session ${sessionId}`, 'HISTORY_SET');
-//           });
-          
-//           sock.ev.on('presence.update', (data) => {
-//             console.log(`Presence update for session ${sessionId}:`, data);
-//             logToFile({ sessionId, ...data }, 'PRESENCE_UPDATE');
-//           });
-          
-//           // Set up creds update handler
-//           sock.ev.on('creds.update', saveCreds);
-          
-//           resolve(sock);
-//         })
-//         .catch(error => {
-//           reject(error);
-//         });
-//     });
-//   }
 // Function to create new socket with message handlers attached
 function createSocketWithHandlers(authDir: string, sessionId: string) {
   return new Promise<ReturnType<typeof makeWASocket>>((resolve, reject) => {
@@ -265,7 +125,7 @@ function createSocketWithHandlers(authDir: string, sessionId: string) {
         
         // Set up message handling for this socket specifically
         sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
-          console.log(`[RECEIVED MESSAGE] Socket: ${sockId}, Session: ${sessionId}, Type: ${type}, Count: ${messages?.length}`);
+          // console.log(`[RECEIVED MESSAGE] Socket: ${sockId}, Session: ${sessionId}, Type: ${type}, Count: ${messages?.length}`);
           logToFile({ 
             event: 'messages.upsert', 
             sockId, 
@@ -281,13 +141,13 @@ function createSocketWithHandlers(authDir: string, sessionId: string) {
           }
           
           // Debug: Log ALL incoming messages
-          console.log("ALL INCOMING MESSAGES:", JSON.stringify(messages, null, 2));
+          // console.log("ALL INCOMING MESSAGES:", JSON.stringify(messages, null, 2));
           logToFile(messages, 'ALL_INCOMING');
           
           for (const message of messages) {
             try {
               // Log raw message for debugging
-              console.log('PROCESSING RAW MESSAGE:', JSON.stringify(message, null, 2));
+              // console.log('PROCESSING RAW MESSAGE:', JSON.stringify(message, null, 2));
               logToFile(message, 'RAW_MESSAGE_DETAIL');
               
               if (message.key?.fromMe || message.messageStubType) {
@@ -319,6 +179,7 @@ function createSocketWithHandlers(authDir: string, sessionId: string) {
                 textSource = 'buttonsResponse';
                 console.log(`Text from buttonsResponse field: "${messageText}"`);
               }
+              
               
               // Check for media with caption
               if (message.message?.imageMessage) {
@@ -389,7 +250,9 @@ function createSocketWithHandlers(authDir: string, sessionId: string) {
                 normalizedText.startsWith('Re-envia:') ||
                 normalizedText.startsWith('Re-envíá:') ||
                 normalizedText.startsWith('Reenvia:') ||
-                normalizedText.startsWith('Reenvía:');
+                normalizedText.startsWith('Reenvía:') ||
+                normalizedText === 'Re-envía' ||  // Add this
+                normalizedText === 'Reenvía';     // Add this
               
               if (shouldForward || (hasMedia && normalizedText.includes('Re-envía'))) {
                 console.log('✅ FOUND forwarding trigger message!');
@@ -419,7 +282,7 @@ function createSocketWithHandlers(authDir: string, sessionId: string) {
                           'stream',
                           {},
                           { 
-                            logger: console,
+                            logger: logger,
                             reuploadRequest: sock.updateMediaMessage
                           }
                         );
@@ -535,7 +398,7 @@ function createSocketWithHandlers(authDir: string, sessionId: string) {
         });
         
         sock.ev.on('presence.update', (data) => {
-          console.log(`Presence update for session ${sessionId}:`, data);
+          // console.log(`Presence update for session ${sessionId}:`, data);
           logToFile({ sessionId, ...data }, 'PRESENCE_UPDATE');
         });
         
@@ -599,9 +462,9 @@ const autoCheckSessions = async () => {
 // Helper function to log available groups
 const logAvailableGroups = async (session: Session) => {
   try {
-    console.log('Attempting to fetch groups for session:', session.sessionId);
+    // console.log('Attempting to fetch groups for session:', session.sessionId);
     const groups = await session.sock.groupFetchAllParticipating();
-    console.log('===== AVAILABLE GROUPS =====');
+    // console.log('===== AVAILABLE GROUPS =====');
     
     const groupsList = Object.values(groups).map((g: any) => ({
       id: g.id,
@@ -609,9 +472,9 @@ const logAvailableGroups = async (session: Session) => {
       participants: g.participants?.length || 0
     }));
     
-    console.table(groupsList);
+    // console.table(groupsList);
     logToFile(groupsList, 'GROUPS');
-    console.log('Looking for group name:', session.groupName);
+    // console.log('Looking for group name:', session.groupName);
     
     // First try exact match
     let foundGroup = groupsList.find(g => g.name === session.groupName);
@@ -922,11 +785,11 @@ router.post('/refresh-groups/:sessionId', async (req: Request<{sessionId: string
   }
   
   try {
-    console.log('Attempting to fetch groups for:', session.groupName);
+    // console.log('Attempting to fetch groups for:', session.groupName);
     
     // Force fetch all groups
     const rawGroups = await session.sock.groupFetchAllParticipating();
-    console.log('===== FETCHED GROUPS =====');
+    // console.log('===== FETCHED GROUPS =====');
     
     const groupsList = Object.values(rawGroups).map((g: any) => ({
       id: g.id,
@@ -934,7 +797,7 @@ router.post('/refresh-groups/:sessionId', async (req: Request<{sessionId: string
       participants: g.participants?.length || 0
     }));
     
-    console.table(groupsList);
+    // console.table(groupsList);
     logToFile(groupsList, 'REFRESH_GROUPS');
     
     // Try several matching strategies
@@ -1094,7 +957,7 @@ router.post('/force-register/:sessionId', async (req: Request<{sessionId: string
   try {
     // Get and log all available groups
     const groups = await session.sock.groupFetchAllParticipating();
-    console.log('===== AVAILABLE GROUPS =====');
+    // console.log('===== AVAILABLE GROUPS =====');
     
     const groupsList = Object.values(groups).map((g: any) => ({
       id: g.id,
@@ -1102,7 +965,7 @@ router.post('/force-register/:sessionId', async (req: Request<{sessionId: string
       participants: g.participants?.length || 0
     }));
     
-    console.table(groupsList);
+    // console.table(groupsList);
     logToFile(groupsList, 'FORCE_REGISTER_GROUPS');
     
     // Try to find the target group
